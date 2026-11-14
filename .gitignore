@@ -1,0 +1,16 @@
+# ---- 敏感凭据（绝不入库）----
+.env
+agent/.env
+
+# ---- 个人数据（隐私，仅本地）----
+agent/memory.json
+agent/sessions.json
+
+# ---- 运行产物 ----
+__pycache__/
+*.pyc
+agent/context_dumps/
+
+# ---- 临时调试文件 ----
+_*.txt
+_*.py
