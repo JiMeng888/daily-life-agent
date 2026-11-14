@@ -59,6 +59,9 @@ Agent 会自动 `web_search` 检索、`fetch_url` 打开权威页面核实，
 ```
 daily-life-agent-starter/
 ├── README.md               # 本文件
+├── docs/
+│   ├── ERRORS.md           # 错误清单：症状→根因→修复→验证（含未修的已知问题）
+│   └── DEBUGGING.md        # 调试方法论：本机环境适配 + 通用排查流程
 ├── skills/                 # 第三方技能目录（即插即用）
 ├── knowledge/
 │   └── city-alias.md       # 城市别名共享知识库
