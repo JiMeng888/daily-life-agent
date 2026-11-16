@@ -13,11 +13,40 @@
 import json
 import os
 import re
+import time
 
 # 默认工具结果落盘阈值（字符数）：超过则写文件
 TOOL_DUMP_THRESHOLD = 2000
 # 落盘目录
 DUMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "context_cache")
+# 落盘文件保留天数（超过则清理，防目录无限膨胀）
+DUMP_MAX_AGE_DAYS = 7
+
+
+def cleanup_dumps(dump_dir: str = DUMP_DIR, max_age_days: int = DUMP_MAX_AGE_DAYS) -> int:
+    """清理落盘目录里超过保留期的文件，返回删除数量。
+
+    只删 dump_dir 直属的普通文件，不递归、不触碰其他目录。
+    供调度器每天调用一次。
+    """
+    if not os.path.isdir(dump_dir):
+        return 0
+    deadline = time.time() - max_age_days * 86400
+    removed = 0
+    try:
+        for name in os.listdir(dump_dir):
+            path = os.path.join(dump_dir, name)
+            if not os.path.isfile(path):
+                continue
+            try:
+                if os.path.getmtime(path) < deadline:
+                    os.remove(path)
+                    removed += 1
+            except OSError:
+                continue
+    except OSError:
+        return removed
+    return removed
 
 
 def _text_len(messages) -> int:

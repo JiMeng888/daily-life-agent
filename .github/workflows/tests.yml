@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: 单元测试（离线）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 调度 / 提醒 / 存储 / 节假日
+        run: python agent/test_scheduler.py
+
+      - name: 技能系统
+        run: python agent/test_skills.py
+
+      - name: 联网检索（离线部分）
+        env:
+          SKIP_ONLINE: "1"
+        run: python agent/test_websearch.py

@@ -92,11 +92,15 @@ def main():
     check("正常页不误判", ws._is_antibot("<title>东莞交警</title>正文") is False)
 
     print("[6] 在线检索（需联网）")
-    live = ws.web_search("东莞 限行", 3)
-    check("真实检索有结果", ("链接：" in live) and ("检索时间：" in live), live[:80])
-    check("结果含相关站名", ("东莞" in live), live[:60])
-    bad = ws.web_search("asdfqwerzxcv不存在的词组合987654", 3)
-    check("无结果时明确失败而非编造", ("失败" in bad or "查不到" in bad), bad[:80])
+    if os.environ.get("SKIP_ONLINE") == "1":
+        # CI 里搜索引擎可能不可达/限流，跳过在线用例，只跑离线逻辑
+        print("  skip 已设置 SKIP_ONLINE=1，跳过在线用例")
+    else:
+        live = ws.web_search("东莞 限行", 3)
+        check("真实检索有结果", ("链接：" in live) and ("检索时间：" in live), live[:80])
+        check("结果含相关站名", ("东莞" in live), live[:60])
+        bad = ws.web_search("asdfqwerzxcv不存在的词组合987654", 3)
+        check("无结果时明确失败而非编造", ("失败" in bad or "查不到" in bad), bad[:80])
 
     print("[7] Agent 注册")
     from main import TOOLS, TOOL_IMPL

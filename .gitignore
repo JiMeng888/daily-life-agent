@@ -9,7 +9,9 @@ agent/sessions.json
 # ---- 运行产物 ----
 __pycache__/
 *.pyc
-agent/context_dumps/
+agent/context_cache/
+agent/logs/
+output/
 
 # ---- 临时调试文件 ----
 _*.txt

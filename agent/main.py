@@ -20,6 +20,9 @@ from scheduler import parse_reminder_time
 from session_store import get_default_store
 from skills import get_default_loader
 from tools import weather, calendar_tool, traffic, realtime, local_utils, emotion, websearch
+from logger import get_logger
+
+log = get_logger("main")
 
 # ---- 工具注册表：LLM 能"看到"的工具清单（JSON Schema 形式）----
 TOOLS = [
@@ -607,11 +610,13 @@ class Agent:
                             args = {}
 
                         yield {"type": "tool", "name": fn_name, "args": args}
+                        log.info("工具调用 %s 参数=%s", fn_name, args)
 
                         if fn_name in TOOL_IMPL and TOOL_IMPL[fn_name] is not None:
                             try:
                                 result = TOOL_IMPL[fn_name](**args)
                             except Exception as e:
+                                log.exception("工具执行失败：%s", fn_name)
                                 result = f"工具执行失败：{e}"
                         else:
                             result = f"未知工具：{fn_name}"
@@ -696,6 +701,24 @@ class Agent:
         """清空上下文（保留 system prompt 与长期记忆）。"""
         self._build_system_prompt()
         return self.context_stats()
+
+    def rewind_last_turn(self) -> int:
+        """回退最后一轮对话（最后一条 user 消息及其之后的 assistant/tool 消息）。
+
+        用于「重新生成」：先撤掉上一轮提问与回答，再让前端重发同一个问题，
+        避免模型看到两遍相同提问。返回被移除的消息条数。
+        """
+        idx = None
+        for i in range(len(self.messages) - 1, -1, -1):
+            if self.messages[i].get("role") == "user":
+                idx = i
+                break
+        if idx is None:
+            return 0
+        removed = len(self.messages) - idx
+        del self.messages[idx:]
+        log.info("回退最后一轮对话：移除 %s 条消息", removed)
+        return removed
 
     def _trim_history(self):
         """裁剪短期记忆：超过 max_history 条时，删掉最旧的对话（保留 system）。"""

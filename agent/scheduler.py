@@ -17,6 +17,13 @@ import re
 import threading
 import time
 
+try:
+    from logger import get_logger
+    log = get_logger("scheduler")
+except ImportError:  # 允许作为独立脚本运行
+    import logging
+    log = logging.getLogger("scheduler")
+
 _WEEKDAYS = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
 
 _CN_NUM = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
@@ -274,11 +281,15 @@ def run_key(sch: dict, now=None) -> str:
 class TaskScheduler:
     """后台线程：周期检查计划任务 + 一次性提醒，到点的交给对应函数执行。"""
 
-    def __init__(self, store, run_fn, reminder_fn=None, interval: int = 30):
+    def __init__(self, store, run_fn, reminder_fn=None, interval: int = 30,
+                 cleanup_fn=None, cleanup_every: int = 86400):
         self.store = store
         self.run_fn = run_fn            # run_fn(task_dict)
         self.reminder_fn = reminder_fn  # reminder_fn(reminder_dict)，可选
         self.interval = interval        # 检查周期（秒）
+        self.cleanup_fn = cleanup_fn    # 定期清理函数（如清理落盘的工具结果），可选
+        self.cleanup_every = cleanup_every  # 清理周期（秒，默认每天）
+        self._last_cleanup = 0.0
         self._stop = threading.Event()
         self._thread = None
 
@@ -294,10 +305,25 @@ class TaskScheduler:
     def _loop(self):
         while not self._stop.is_set():
             try:
+                self._maybe_cleanup()
                 self.tick()
             except Exception:
-                pass  # 单轮异常不致命，下轮继续
+                log.exception("调度器单轮检查异常（下轮继续）")
             self._stop.wait(self.interval)
+
+    def _maybe_cleanup(self):
+        """到清理周期就执行一次清理（默认每天），失败不影响调度。"""
+        if self.cleanup_fn is None:
+            return
+        if time.time() - self._last_cleanup < self.cleanup_every:
+            return
+        self._last_cleanup = time.time()
+        try:
+            removed = self.cleanup_fn()
+            if removed:
+                log.info("定期清理完成：删除 %s 个过期落盘文件", removed)
+        except Exception:
+            log.exception("定期清理失败")
 
     def tick(self):
         """检查一遍所有任务与提醒，执行到期的（公开出来方便测试）。"""
@@ -318,16 +344,20 @@ class TaskScheduler:
                 threading.Thread(target=self._safe_remind, args=(rem,), daemon=True).start()
 
     def _safe_run(self, task):
+        log.info("执行计划任务：%s（%s）", task.get("name"), task.get("schedule"))
         try:
             self.run_fn(task)
+            log.info("计划任务完成：%s", task.get("name"))
         except Exception as e:
+            log.exception("计划任务失败：%s", task.get("name"))
             try:
                 self.store.update_task(task["id"], last_status=f"error: {e}")
             except Exception:
-                pass
+                log.exception("写入任务失败状态时出错")
 
     def _safe_remind(self, rem):
+        log.info("触发提醒：%s", rem.get("message"))
         try:
             self.reminder_fn(rem)
         except Exception:
-            pass
+            log.exception("触发提醒失败：%s", rem.get("id"))

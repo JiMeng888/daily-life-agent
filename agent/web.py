@@ -26,6 +26,10 @@ from llm import _get_default_client  # noqa: E402
 from memory import Memory, MEMORY_KEYS  # noqa: E402
 from session_store import get_default_store  # noqa: E402
 from scheduler import TaskScheduler, parse_schedule  # noqa: E402
+from context import cleanup_dumps  # noqa: E402
+from logger import get_logger, LOG_PATH  # noqa: E402
+
+log = get_logger("web")
 
 HOST = "127.0.0.1"
 PORT = 8000
@@ -100,6 +104,7 @@ def execute_task(task: dict, notify: bool = True) -> dict:
             elif ev.get("type") == "error":
                 status = f"error: {ev.get('content', '')}"
     except Exception as e:
+        log.exception("计划任务执行异常：%s", task.get("name"))
         status = f"error: {e}"
 
     answer = "".join(answer_parts)
@@ -210,6 +215,7 @@ class Handler(BaseHTTPRequestHandler):
                 if ev.get("type") == "done":
                     answer = ev.get("content", "")
         except Exception as e:
+            log.exception("对话处理失败（cid=%s）", cid)
             self._send_json({"error": f"处理失败：{e}"}, status=500)
             return
 
@@ -236,6 +242,10 @@ class Handler(BaseHTTPRequestHandler):
 
         agent = get_agent(cid)
 
+        # 重新生成：先撤掉上一轮（提问+回答），再按同一问题重跑，避免上下文里出现两遍相同提问
+        if data.get("regenerate"):
+            agent.rewind_last_turn()
+
         # 关键：每轮开始前清空上一轮的取消标记，否则点过一次停止后会永久无法再请求
         client = _get_default_client()
         client.reset_abort()
@@ -260,6 +270,8 @@ class Handler(BaseHTTPRequestHandler):
 
         answer_parts = []
         got_terminal = False
+        started = time.time()
+        log.info("对话开始（cid=%s, 长度=%s）：%s", cid, len(user_input), user_input[:60])
         try:
             for ev in agent.ask_stream(user_input):
                 if ev.get("type") == "text":
@@ -271,7 +283,9 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             # 前端已断开（如用户关闭页面），静默处理
             got_terminal = True
+            log.info("前端连接中断（cid=%s）", cid)
         except Exception as e:
+            log.exception("流式对话异常（cid=%s）", cid)
             try:
                 _emit({"type": "error", "content": str(e)})
             except Exception:
@@ -284,6 +298,8 @@ class Handler(BaseHTTPRequestHandler):
                     _emit({"type": "done", "content": "".join(answer_parts)})
                 except Exception:
                     pass
+            log.info("对话结束（cid=%s，耗时 %.1fs，回答 %s 字）",
+                     cid, time.time() - started, sum(len(p) for p in answer_parts))
 
         # 持久化会话历史
         try:
@@ -293,7 +309,7 @@ class Handler(BaseHTTPRequestHandler):
                 if conv and conv.get("title") == "新对话":
                     _store.update_conversation(cid, title=_store.auto_title(user_input))
         except Exception:
-            pass
+            log.exception("保存会话历史失败（cid=%s）", cid)
 
     def _handle_chat_stop(self):
         """停止当前会话正在进行的生成。"""
@@ -378,6 +394,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "会话不存在"}, status=404)
                 return
             self._send_json({"conversation": conv})
+        elif action == "rename":
+            cid = data.get("cid")
+            title = (data.get("title") or "").strip()
+            if not cid or not title:
+                self._send_json({"error": "缺少 cid 或 title"}, status=400)
+                return
+            if not _store.get_conversation(cid):
+                self._send_json({"error": "会话不存在"}, status=404)
+                return
+            _store.update_conversation(cid, title=title[:40])
+            self._send_json({"ok": True, "title": title[:40]})
         else:
             self._send_json({"error": "未知 action"}, status=400)
 
@@ -460,24 +487,29 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "未知 action"}, status=400)
 
     def log_message(self, format, *args):
-        # 静默默认日志，避免刷屏
-        pass
+        # HTTP 访问日志走 debug 级（默认不刷屏），需要排查时调 LOG_LEVEL=DEBUG
+        log.debug("%s - %s", self.address_string(), format % args)
 
 
 def main():
-    # 启动调度器：每 30 秒检查一次，到点的计划任务自动执行、到点的提醒触发通知
-    scheduler = TaskScheduler(_store, run_fn=execute_task, reminder_fn=fire_reminder, interval=30)
+    # 启动调度器：每 30 秒检查一次，到点的计划任务自动执行、到点的提醒触发通知；
+    # cleanup_fn 每天清理一次过期的工具结果落盘文件
+    scheduler = TaskScheduler(_store, run_fn=execute_task, reminder_fn=fire_reminder, interval=30,
+                              cleanup_fn=cleanup_dumps)
     scheduler.start()
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
+    log.info("日常生活智能体 Web UI 已启动：http://localhost:%s", PORT)
+    log.info("日志目录：%s", os.path.dirname(LOG_PATH))
     print("=" * 50)
-    print(f"日常生活智能体 Web UI 已启动")
+    print("日常生活智能体 Web UI 已启动")
     print(f"请在浏览器打开：http://localhost:{PORT}")
     print("按 Ctrl+C 停止")
     print("=" * 50)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        log.info("服务已停止（Ctrl+C）")
         print("\n已停止。")
         scheduler.stop()
         server.server_close()

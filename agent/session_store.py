@@ -13,7 +13,14 @@ import threading
 import time
 import uuid
 
-DEFAULT_STORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessions.json")
+DEFAULT_STORE_FILE = os.environ.get(
+    "SESSIONS_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessions.json"),
+)
+
+# 单会话存储的消息条数上限。超出后只保留最近 N 条（更早的已在
+# ContextManager 里压成摘要，无需无限留档，避免 sessions.json 无限膨胀）。
+MAX_MESSAGES_PER_CONVERSATION = 400
 
 _lock = threading.Lock()
 
@@ -86,7 +93,13 @@ class SessionStore:
         if title is not None:
             c["title"] = title
         if messages is not None:
-            c["messages"] = messages
+            # 只保留最近 N 条，防止单会话无限膨胀（历史更早内容已由上下文压缩处理）
+            msgs = list(messages)
+            if len(msgs) > MAX_MESSAGES_PER_CONVERSATION:
+                dropped = len(msgs) - MAX_MESSAGES_PER_CONVERSATION
+                msgs = msgs[-MAX_MESSAGES_PER_CONVERSATION:]
+                c["truncated_count"] = c.get("truncated_count", 0) + dropped
+            c["messages"] = msgs
         c["updated_at"] = time.time()
         self._save()
 

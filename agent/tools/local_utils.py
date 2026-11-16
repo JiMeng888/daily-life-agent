@@ -82,40 +82,46 @@ def convert_unit(value: float, from_unit: str, to_unit: str) -> str:
     return f"{value} {from_unit} = {round(result, 4)} {to_unit}"
 
 
-# 节假日（含农历，用简化日期近似）
-_HOLIDAYS = {
-    "元旦": (1, 1),
-    "春节": (2, 17),       # 2026 年春节正月初一约 2/17
-    "清明节": (4, 5),
-    "劳动节": (5, 1),
-    "端午节": (6, 19),     # 2026 年端午约 6/19
-    "中秋节": (9, 25),     # 2026 年中秋约 9/25
-    "国庆节": (10, 1),
-}
+# 节假日倒计时：日期查 agent/holidays.json（每年更新），
+# 未收录年份返回联网检索指引，由 LLM 调 web_search 兜底。
+try:
+    from tools.calendar_tool import load_holidays, search_fallback
+except ImportError:  # 直接以脚本方式运行（python tools/local_utils.py）时
+    from calendar_tool import load_holidays, search_fallback
 
 
 def get_holiday_countdown(holiday: str = "春节", year: int = 0) -> str:
     """计算距某节假日的天数。参数 holiday 节日名，year 年份（默认今年）。"""
     if not year:
         year = datetime.date.today().year
-    if holiday not in _HOLIDAYS:
-        names = "、".join(_HOLIDAYS.keys())
+
+    data = load_holidays().get(str(year))
+    if not data:
+        return search_fallback(year, holiday)
+    if holiday not in data:
+        names = "、".join(data.keys())
         return f"暂不支持该节日，可选：{names}。"
 
-    month, day = _HOLIDAYS[holiday]
-    target = datetime.date(year, month, day)
+    try:
+        target = datetime.date.fromisoformat(data[holiday]["date"])
+    except (KeyError, ValueError):
+        return search_fallback(year, holiday)
+
     today = datetime.date.today()
     days = (target - today).days
 
     if days > 0:
-        return f"距离 {year} 年{holiday}（{month}月{day}日）还有 {days} 天。"
+        return f"距离 {year} 年{holiday}（{target.month}月{target.day}日）还有 {days} 天。"
     elif days == 0:
         return f"今天就是{holiday}！"
     else:
-        # 已过，算明年的
-        next_target = datetime.date(year + 1, month, day)
-        days_next = (next_target - today).days
-        return f"{year} 年{holiday}已过，距离 {year + 1} 年{holiday}还有 {days_next} 天。"
+        # 已过，看明年的数据；明年未收录则给联网兜底指引
+        next_data = load_holidays().get(str(year + 1))
+        if next_data and holiday in next_data:
+            next_target = datetime.date.fromisoformat(next_data[holiday]["date"])
+            days_next = (next_target - today).days
+            return f"{year} 年{holiday}已过，距离 {year + 1} 年{holiday}（{next_target.month}月{next_target.day}日）还有 {days_next} 天。"
+        return search_fallback(year + 1, holiday)
 
 
 def get_clothing(temp_c: float, weather: str = "") -> str:
@@ -149,4 +155,6 @@ if __name__ == "__main__":
     print(convert_unit(1, "千米", "米"))
     print(convert_unit(25, "摄氏度", "华氏度"))
     print(get_holiday_countdown("国庆节"))
+    print(get_holiday_countdown("春节", 2027))
+    print(get_holiday_countdown("春节", 2030))
     print(get_clothing(15, "小雨"))

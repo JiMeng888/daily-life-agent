@@ -1,12 +1,21 @@
-"""E2E：真实 LLM 验证技能触发链路（use_skill → 按技能工作流回答）。"""
+"""E2E：真实 LLM 验证技能触发链路（use_skill → 按技能工作流回答）。
+
+注意：数据文件写到临时目录，不污染生产 memory.json / sessions.json。
+"""
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from main import Agent
+# 必须在 import main 之前设置，子模块在导入时读取环境变量
+_TMP = tempfile.mkdtemp(prefix="agent-e2e-")
+os.environ["MEMORY_FILE"] = os.path.join(_TMP, "memory.json")
+os.environ["SESSIONS_FILE"] = os.path.join(_TMP, "sessions.json")
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_e2e_out.txt")
+from main import Agent  # noqa: E402
+
+OUT = os.path.join(_TMP, "_e2e_out.txt")
 
 
 def run():

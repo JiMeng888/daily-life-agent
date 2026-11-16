@@ -59,6 +59,7 @@ Agent 会自动 `web_search` 检索、`fetch_url` 打开权威页面核实，
 ```
 daily-life-agent-starter/
 ├── README.md               # 本文件
+├── LICENSE                 # MIT
 ├── docs/
 │   ├── ERRORS.md           # 错误清单：症状→根因→修复→验证（含未修的已知问题）
 │   └── DEBUGGING.md        # 调试方法论：本机环境适配 + 通用排查流程
@@ -71,16 +72,27 @@ daily-life-agent-starter/
     ├── skills.py           # 技能加载器（扫描/解析/热重载/路径防护）
     ├── llm.py              # LLM 调用封装（OpenAI 兼容，流式 + 中断）
     ├── memory.py           # 长期记忆（memory.json 持久化）
-    ├── context.py          # 上下文四层压缩
-    ├── scheduler.py        # 计划任务/提醒调度器
-    ├── session_store.py    # 会话/任务/提醒/通知持久化
-    ├── index.html          # Web UI
+    ├── context.py          # 上下文四层压缩 + 落盘文件定期清理
+    ├── scheduler.py        # 计划任务/提醒调度器（含每日清理钩子）
+    ├── session_store.py    # 会话/任务/提醒/通知持久化（会话消息有上限）
+    ├── holidays.json       # 节假日数据（按年份组织，每年官方发布后更新一次）
+    ├── logger.py           # 统一日志（控制台 + agent/logs/app.log 轮转）
+    ├── index.html          # Web UI（深浅色主题、复制/重新生成/重命名/导出）
+    ├── test_scheduler.py   # 调度/提醒/存储/清理/节假日单测（60 项）
     ├── test_skills.py      # 技能系统单测（31 项）
     ├── test_websearch.py   # 联网检索单测（31 项）
     └── tools/              # 工具实现（本地真实函数）
         ├── websearch.py    #   联网搜索 + 网页正文抓取
+        ├── calendar_tool.py#   日期查询（节假日查 holidays.json，未收录走联网）
         └── traffic.py      #   限行规则表（未收录时引导联网）
 ```
+
+## Web UI 特性
+
+- **深浅色主题**：顶栏一键切换，跟随系统偏好，`?theme=dark` 直链分享
+- **回答操作条**：hover 任意回答显示「复制 / 重新生成」（重新生成会先回退上一轮，不重复喂上下文）
+- **会话重命名**：双击顶栏标题就地编辑
+- **导出 Markdown**：顶栏下载按钮，一键导出当前对话
 
 ## 运行
 
@@ -90,4 +102,5 @@ py agent/web.py        # Web UI（推荐）：http://localhost:8000
 py agent/main.py       # 命令行版
 ```
 
-零三方依赖：Python 标准库即可运行（LLM 走 OpenAI 兼容接口）。
+零三方依赖：Python 标准库 + requests 即可运行（LLM 走 OpenAI 兼容接口）。
+单测：`py agent/test_scheduler.py` 等，或在 GitHub 上看 CI（push 自动跑离线用例）。

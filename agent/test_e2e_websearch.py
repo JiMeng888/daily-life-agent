@@ -1,12 +1,20 @@
-"""E2E：真实 LLM 验证「本地无数据 → 联网自查」链路。"""
+"""E2E：真实 LLM 验证「本地无数据 → 联网自查」链路。
+
+注意：数据文件写到临时目录，不污染生产 memory.json / sessions.json。
+"""
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from main import Agent
+_TMP = tempfile.mkdtemp(prefix="agent-e2e-")
+os.environ["MEMORY_FILE"] = os.path.join(_TMP, "memory.json")
+os.environ["SESSIONS_FILE"] = os.path.join(_TMP, "sessions.json")
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_e2e_search_out.txt")
+from main import Agent  # noqa: E402
+
+OUT = os.path.join(_TMP, "_e2e_search_out.txt")
 
 
 def run():
